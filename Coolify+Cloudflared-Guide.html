@@ -1,0 +1,919 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Coolify behind a Cloudflare Tunnel — Setup Guide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0a0f0d;
+    --bg-elevated:#0f1613;
+    --surface:#131b17;
+    --surface-2:#19231d;
+    --border:#22302a;
+    --border-strong:#334339;
+    --text-primary:#e9f1ec;
+    --text-secondary:#a3b5ac;
+    --text-muted:#66796f;
+    --emerald:#22c98e;
+    --emerald-bright:#5eebb3;
+    --emerald-dim:#0f8f63;
+    --emerald-wash:rgba(34,201,142,0.12);
+    --amber:#e0a94a;
+    --amber-wash:rgba(224,169,74,0.10);
+    --red:#e0715f;
+    --red-wash:rgba(224,113,95,0.10);
+    --radius:10px;
+    --radius-lg:16px;
+    --sidebar-w:272px;
+    --font-display:'Space Grotesk',ui-sans-serif,system-ui,sans-serif;
+    --font-body:'Inter',ui-sans-serif,system-ui,sans-serif;
+    --font-mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+  }
+
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth; overflow-x:hidden;}
+  body{
+    margin:0;
+    overflow-x:hidden;
+    background:
+      radial-gradient(1100px 560px at 85% -8%, rgba(34,201,142,0.08), transparent 60%),
+      radial-gradient(900px 500px at -10% 10%, rgba(34,201,142,0.05), transparent 55%),
+      var(--bg);
+    color:var(--text-primary);
+    font-family:var(--font-body);
+    line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* ---------- Scrollbars (themed, never the OS-default white/gray bar) ---------- */
+  *{
+    scrollbar-width:thin;
+    scrollbar-color:var(--border-strong) transparent;
+  }
+  ::-webkit-scrollbar{width:9px; height:7px;}
+  ::-webkit-scrollbar-track{background:transparent;}
+  ::-webkit-scrollbar-thumb{background:var(--border-strong); border-radius:99px; border:2px solid transparent; background-clip:padding-box;}
+  ::-webkit-scrollbar-thumb:hover{background:var(--emerald-dim);}
+  ::-webkit-scrollbar-corner{background:transparent;}
+  ::-webkit-scrollbar-button{display:none; width:0; height:0;}
+  h1,h2,h3{font-family:var(--font-display); font-weight:600; letter-spacing:-0.01em; margin:0;}
+  a{color:var(--emerald-bright);}
+  p{margin:0 0 1em 0; color:var(--text-secondary);}
+  code, .mono{font-family:var(--font-mono);}
+  ::selection{background:var(--emerald-wash); color:var(--text-primary);}
+
+  /* ---------- Topbar (mobile) ---------- */
+  .topbar{
+    display:none;
+    position:sticky; top:0; z-index:40;
+    align-items:center; justify-content:space-between;
+    padding:14px 18px;
+    background:rgba(10,15,13,0.9);
+    backdrop-filter:blur(10px);
+    border-bottom:1px solid var(--border);
+  }
+  .topbar .brand{display:flex; align-items:center; gap:10px; font-family:var(--font-display); font-weight:600; font-size:15px;}
+  .topbar .brand .dot{width:9px; height:9px; border-radius:50%; background:var(--emerald); box-shadow:0 0 0 4px var(--emerald-wash);}
+  .menu-btn{
+    background:var(--surface-2); border:1px solid var(--border-strong); color:var(--text-primary);
+    width:38px; height:38px; border-radius:9px; display:flex; align-items:center; justify-content:center;
+    cursor:pointer;
+  }
+  .menu-btn svg{width:18px; height:18px;}
+
+  /* ---------- Layout ---------- */
+  .layout{display:flex; max-width:1360px; margin:0 auto;}
+
+  .sidebar{
+    width:var(--sidebar-w); flex-shrink:0;
+    position:sticky; top:0; align-self:flex-start;
+    height:100vh; overflow-y:auto;
+    padding:34px 22px 40px 34px;
+    border-right:1px solid var(--border);
+  }
+  .sidebar .brand{display:flex; align-items:center; gap:10px; margin-bottom:6px;}
+  .sidebar .brand .dot{width:10px; height:10px; border-radius:50%; background:var(--emerald); box-shadow:0 0 0 5px var(--emerald-wash);}
+  .sidebar .brand-name{font-family:var(--font-display); font-weight:600; font-size:16px;}
+  .sidebar .brand-sub{font-size:12px; color:var(--text-muted); margin:0 0 28px 0; padding-left:20px;}
+
+  .navgroup{margin-bottom:22px;}
+  .navgroup .navlabel{
+    font-size:11px; text-transform:uppercase; letter-spacing:0.08em; color:var(--text-muted);
+    margin:0 0 8px 2px; font-weight:600;
+  }
+  .navlink{
+    display:flex; align-items:baseline; gap:10px;
+    padding:7px 10px; border-radius:8px; font-size:13.5px;
+    color:var(--text-secondary); text-decoration:none; cursor:pointer;
+    border-left:2px solid transparent;
+  }
+  .navlink .n{font-family:var(--font-mono); font-size:11px; color:var(--text-muted); flex-shrink:0; width:14px;}
+  .navlink:hover{background:var(--surface); color:var(--text-primary);}
+  .navlink.active{background:var(--emerald-wash); color:var(--emerald-bright); border-left-color:var(--emerald);}
+  .navlink.active .n{color:var(--emerald-bright);}
+
+  .content{flex:1; min-width:0; padding:44px 48px 80px;}
+  .content-inner{max-width:760px; margin:0 auto;}
+
+  .overlay{display:none;}
+
+  /* ---------- Hero ---------- */
+  .kicker{
+    display:inline-flex; align-items:center; gap:7px;
+    font-size:12px; font-weight:600; letter-spacing:0.04em; text-transform:uppercase;
+    color:var(--emerald-bright); background:var(--emerald-wash);
+    border:1px solid rgba(34,201,142,0.25);
+    padding:5px 12px; border-radius:999px; margin-bottom:18px;
+  }
+  h1.title{font-size:clamp(28px,4.4vw,42px); line-height:1.12; margin-bottom:14px;}
+  h1.title .accent{color:var(--emerald-bright);}
+  .lede{font-size:16.5px; color:var(--text-secondary); max-width:60ch; margin-bottom:28px;}
+
+  .stat-row{display:flex; flex-wrap:wrap; gap:12px; margin-bottom:38px;}
+  .stat-chip{
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:var(--radius); padding:12px 16px;
+    display:flex; flex-direction:column; gap:2px; min-width:130px;
+  }
+  .stat-chip .num{font-family:var(--font-display); font-size:19px; color:var(--emerald-bright); font-weight:600;}
+  .stat-chip .label{font-size:11.5px; color:var(--text-muted);}
+
+  /* ---------- Diagram ---------- */
+  .diagram-wrap{
+    position:relative;
+    background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg);
+    padding:20px 20px 16px; margin-bottom:42px;
+  }
+  .diagram-wrap::after{
+    content:''; position:absolute; top:20px; bottom:28px; right:1px; width:34px;
+    background:linear-gradient(to right, transparent, var(--surface));
+    pointer-events:none; opacity:0; transition:opacity .2s ease;
+    border-radius:0 8px 8px 0;
+  }
+  .diagram-wrap.is-scrollable::after{opacity:1;}
+  .diagram-scroll{overflow-x:auto; overflow-y:hidden; padding-bottom:6px;}
+  .diagram-scroll svg{width:100%; min-width:600px; max-width:900px; height:auto; display:block; margin:0 auto;}
+  .diagram-scroll::-webkit-scrollbar{height:6px;}
+  .diagram-caption{font-size:12.5px; color:var(--text-muted); margin-top:10px; padding-top:14px; border-top:1px solid var(--border); text-align:center;}
+  .tunnel-flow{stroke-dasharray:7 6; animation:flow 1.1s linear infinite;}
+  @keyframes flow{to{stroke-dashoffset:-26;}}
+  @media (prefers-reduced-motion:reduce){.tunnel-flow{animation:none;}}
+  .pulse-dot{animation:pulse 2.2s ease-in-out infinite;}
+  @keyframes pulse{0%,100%{opacity:1;} 50%{opacity:0.35;}}
+  @media (prefers-reduced-motion:reduce){.pulse-dot{animation:none;}}
+
+  /* ---------- Section chrome ---------- */
+  .section{padding-top:64px; margin-top:-64px;}
+  .section-head{display:flex; align-items:baseline; gap:12px; margin-bottom:6px;}
+  .step-num{
+    font-family:var(--font-mono); font-size:13px; color:var(--emerald-bright);
+    background:var(--emerald-wash); border:1px solid rgba(34,201,142,0.3);
+    border-radius:7px; padding:2px 9px; flex-shrink:0;
+  }
+  h2.htitle{font-size:23px;}
+  .section-sub{font-size:14.5px; color:var(--text-muted); margin:6px 0 24px;}
+  hr.rule{border:none; border-top:1px solid var(--border); margin:56px 0;}
+
+  ul.tight, ol.tight{padding-left:20px; color:var(--text-secondary);}
+  ul.tight li, ol.tight li{margin-bottom:8px;}
+  ul.tight li::marker{color:var(--emerald);}
+  strong{color:var(--text-primary); font-weight:600;}
+
+  /* ---------- Callouts ---------- */
+  .callout{
+    display:flex; gap:12px; border-radius:var(--radius); padding:14px 16px;
+    margin:18px 0; border:1px solid; font-size:13.8px;
+  }
+  .callout .ci{flex-shrink:0; width:18px; height:18px; margin-top:1px;}
+  .callout p{margin:0; color:var(--text-secondary);}
+  .callout strong{display:block; margin-bottom:2px; font-size:13.5px;}
+  .callout.note{background:var(--emerald-wash); border-color:rgba(34,201,142,0.28);}
+  .callout.note strong{color:var(--emerald-bright);}
+  .callout.note .ci{color:var(--emerald);}
+  .callout.warn{background:var(--amber-wash); border-color:rgba(224,169,74,0.3);}
+  .callout.warn strong{color:var(--amber);}
+  .callout.warn .ci{color:var(--amber);}
+  .callout.danger{background:var(--red-wash); border-color:rgba(224,113,95,0.3);}
+  .callout.danger strong{color:var(--red);}
+  .callout.danger .ci{color:var(--red);}
+
+  /* ---------- Code blocks ---------- */
+  .code-block{
+    background:var(--bg-elevated); border:1px solid var(--border);
+    border-radius:var(--radius); overflow:hidden; margin:16px 0;
+  }
+  .code-block-head{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:9px 14px; background:var(--surface-2); border-bottom:1px solid var(--border);
+  }
+  .code-label{font-family:var(--font-mono); font-size:11.5px; color:var(--text-muted); letter-spacing:0.03em;}
+  .copy-btn{
+    display:flex; align-items:center; gap:6px;
+    background:transparent; border:1px solid var(--border-strong); color:var(--text-secondary);
+    font-family:var(--font-body); font-size:12px; font-weight:500;
+    padding:5px 10px; border-radius:7px; cursor:pointer; transition:all .15s ease;
+  }
+  .copy-btn:hover{color:var(--text-primary); border-color:var(--emerald); background:var(--emerald-wash);}
+  .copy-btn svg{width:13px; height:13px;}
+  .copy-btn.copied{color:var(--emerald-bright); border-color:var(--emerald);}
+  .code-block pre{margin:0; padding:15px 16px; overflow-x:auto;}
+  .code-block code{font-size:13px; color:#cfe8da; white-space:pre; line-height:1.65;}
+  .code-block .cm{color:var(--text-muted);}
+
+  /* Reference-only code blocks (nothing to copy — shown so the reader recognizes the real thing) */
+  .code-block.reference{border-style:dashed; border-color:var(--border-strong);}
+  .code-block.reference .code-block-head{background:transparent;}
+  .code-block.reference pre{opacity:0.82;}
+  .ref-badge{
+    display:flex; align-items:center; gap:6px; flex-shrink:0;
+    font-family:var(--font-body); font-size:12px; font-weight:500; color:var(--text-muted);
+    background:var(--surface); border:1px solid var(--border-strong);
+    padding:5px 10px; border-radius:7px; cursor:default; user-select:none;
+  }
+  .ref-badge svg{width:13px; height:13px; flex-shrink:0;}
+
+  /* Cloudflare dashboard mimic — teaches the reader what the real copy icon looks like */
+  .cf-mimic{
+    background:var(--bg-elevated); border:1px solid var(--border); border-radius:var(--radius-lg);
+    padding:16px 18px 18px; margin:18px 0;
+  }
+  .cf-mimic-title-row{display:flex; align-items:center; gap:9px; margin-bottom:16px;}
+  .cf-mimic-dot{width:8px; height:8px; border-radius:50%; background:var(--emerald); flex-shrink:0; box-shadow:0 0 0 4px var(--emerald-wash);}
+  .cf-mimic-title{font-size:12px; font-weight:600; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.04em;}
+  .cf-mimic-row{margin-bottom:14px;}
+  .cf-mimic-row:last-of-type{margin-bottom:0;}
+  .cf-mimic-label{display:block; font-size:12px; color:var(--text-muted); margin-bottom:6px;}
+  .cf-mimic-cmdbox{
+    display:flex; align-items:center; gap:10px; justify-content:space-between; min-width:0;
+    background:var(--surface); border:1px solid var(--border-strong); border-radius:8px;
+    padding:9px 10px 9px 12px;
+  }
+  .cf-mimic-cmd{
+    font-family:var(--font-mono); font-size:12px; color:var(--text-secondary);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0;
+  }
+  .cf-mimic-icon{
+    flex-shrink:0; width:26px; height:26px; border-radius:6px;
+    background:var(--surface-2); border:1px solid var(--border-strong); color:var(--text-muted);
+    display:flex; align-items:center; justify-content:center;
+  }
+  .cf-mimic-icon svg{width:13px; height:13px;}
+  .cf-mimic-cmdbox--target{border-color:var(--emerald); box-shadow:0 0 0 3px var(--emerald-wash);}
+  .cf-mimic-icon--target{background:var(--emerald-wash); border-color:var(--emerald); color:var(--emerald-bright);}
+  .cf-mimic-hint{font-size:12.5px; color:var(--emerald-bright); margin:14px 0 0; padding-top:14px; border-top:1px solid var(--border);}
+
+  code.inline{
+    font-family:var(--font-mono); font-size:0.87em; background:var(--surface-2);
+    border:1px solid var(--border); padding:1.5px 6px; border-radius:5px; color:var(--emerald-bright);
+  }
+
+  /* ---------- Tables ---------- */
+  .table-wrap{position:relative; overflow-x:auto; border:1px solid var(--border); border-radius:var(--radius-lg); margin:18px 0;}
+  .table-wrap::after{
+    content:''; position:absolute; top:1px; bottom:1px; right:1px; width:34px;
+    background:linear-gradient(to right, transparent, var(--bg-elevated));
+    pointer-events:none; opacity:0; transition:opacity .2s ease;
+    border-radius:0 8px 8px 0;
+  }
+  .table-wrap.is-scrollable::after{opacity:1;}
+  table{width:100%; border-collapse:collapse; min-width:640px; font-size:13.3px;}
+  table.route-table{min-width:720px;}
+  table.route-table th:last-child, table.route-table td:last-child{min-width:170px;}
+  thead th{
+    text-align:left; font-family:var(--font-body); font-weight:600; font-size:11.5px;
+    text-transform:uppercase; letter-spacing:0.04em; color:var(--text-muted);
+    background:var(--surface-2); padding:11px 14px; border-bottom:1px solid var(--border);
+  }
+  tbody td{padding:12px 14px; border-bottom:1px solid var(--border); color:var(--text-secondary); vertical-align:top;}
+  tbody tr:last-child td{border-bottom:none;}
+  tbody tr.highlight{background:var(--emerald-wash);}
+  tbody tr.highlight td{color:var(--text-primary);}
+  td.mono-cell{font-family:var(--font-mono); font-size:12.5px; color:var(--emerald-bright); white-space:nowrap;}
+  th{white-space:nowrap;}
+  .badge{
+    display:inline-block; font-size:10.5px; font-weight:600; letter-spacing:0.03em;
+    text-transform:uppercase; padding:2px 8px; border-radius:999px;
+    background:var(--emerald); color:#04140d; margin-left:8px;
+  }
+
+  /* ---------- Checklist ---------- */
+  .checklist{list-style:none; padding:0; margin:18px 0;}
+  .checklist li{
+    display:flex; gap:12px; padding:12px 4px; border-bottom:1px solid var(--border);
+    font-size:14px; color:var(--text-secondary);
+  }
+  .checklist li:last-child{border-bottom:none;}
+  .checklist .cnum{
+    flex-shrink:0; width:22px; height:22px; border-radius:6px; background:var(--surface-2);
+    border:1px solid var(--border-strong); display:flex; align-items:center; justify-content:center;
+    font-family:var(--font-mono); font-size:11px; color:var(--emerald-bright);
+  }
+  .checklist strong{color:var(--text-primary);}
+
+  /* ---------- Footer ---------- */
+  .footer{margin-top:60px; padding-top:26px; border-top:1px solid var(--border); font-size:12.5px; color:var(--text-muted);}
+
+  /* ---------- Responsive ---------- */
+  @media (max-width:999px){
+    .topbar{display:flex;}
+    .sidebar{
+      position:fixed; top:0; left:0; z-index:60; background:var(--bg);
+      max-width:85vw;
+      transform:translateX(-100%); transition:transform .25s ease; box-shadow:0 0 40px rgba(0,0,0,0.5);
+    }
+    .sidebar.open{transform:translateX(0);}
+    .overlay{
+      display:none; position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:50;
+    }
+    .overlay.show{display:block;}
+    .content{padding:32px 20px 70px;}
+  }
+  @media (max-width:600px){
+    .diagram-wrap{padding:14px 12px 12px;}
+    .cf-mimic{padding:14px 14px 16px;}
+    .cf-mimic-cmd{font-size:11px;}
+  }
+  @media (max-width:520px){
+    .stat-row{gap:8px;}
+    .stat-chip{min-width:104px; padding:10px 12px;}
+    .content{padding:26px 14px 60px;}
+    h1.title{font-size:26px;}
+    .code-block-head{flex-wrap:wrap; gap:8px;}
+    .cf-mimic-cmdbox{padding:8px 8px 8px 10px;}
+  }
+  @media (max-width:360px){
+    .stat-chip{min-width:100%;}
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand"><span class="dot"></span>Coolify × Cloudflare Tunnel</div>
+  <button class="menu-btn" id="menuBtn" aria-label="Open menu">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+  </button>
+</div>
+<div class="overlay" id="overlay"></div>
+
+<div class="layout">
+
+  <nav class="sidebar" id="sidebar">
+    <div class="brand"><span class="dot"></span><span class="brand-name">Coolify Cloudflared</span></div>
+    <p class="brand-sub">by SHORON</p>
+
+    <div class="navgroup">
+      <a class="navlink" href="#overview"><span class="n"></span>Overview</a>
+      <a class="navlink" href="#prereqs"><span class="n"></span>Prerequisites</a>
+    </div>
+
+    <div class="navgroup">
+      <p class="navlabel">Setup steps</p>
+      <a class="navlink" href="#create-tunnel"><span class="n">01</span>Create the tunnel</a>
+      <a class="navlink" href="#routes"><span class="n">02</span>Wire up the routes</a>
+      <a class="navlink" href="#install-coolify"><span class="n">03</span>Install Coolify</a>
+      <a class="navlink" href="#realtime"><span class="n">04</span>Connect realtime</a>
+      <a class="navlink" href="#domains"><span class="n">05</span>Set your domains</a>
+      <a class="navlink" href="#security"><span class="n">06</span>Cloudflare security</a>
+      <a class="navlink" href="#firewall"><span class="n">07</span>Lock down the firewall</a>
+      <a class="navlink" href="#verify"><span class="n">08</span>Verify</a>
+    </div>
+
+    <div class="navgroup">
+      <a class="navlink" href="#new-apps"><span class="n"></span>Deploying new apps</a>
+    </div>
+  </nav>
+
+  <main class="content">
+    <div class="content-inner">
+
+      <!-- OVERVIEW -->
+      <section class="section" id="overview">
+        <span class="kicker">Infrastructure guide</span>
+        <h1 class="title">Coolify behind a <span class="accent">Cloudflare Tunnel</span></h1>
+        <p class="lede">
+          Set up <code class="inline">coolify.yourdomain.com</code> once, lock every inbound port on the VPS, and every
+          app you deploy afterward inherits routing automatically — no repeat trips to the Cloudflare dashboard.
+        </p>
+
+        <div class="stat-row">
+          <div class="stat-chip"><span class="num">0</span><span class="label">inbound ports open</span></div>
+          <div class="stat-chip"><span class="num">1</span><span class="label">wildcard route, forever</span></div>
+          <div class="stat-chip"><span class="num">5</span><span class="label">tunnel routes total</span></div>
+          <div class="stat-chip"><span class="num">~25 min</span><span class="label">clean VPS to live app</span></div>
+        </div>
+
+        <div class="diagram-wrap">
+          <div class="diagram-scroll">
+            <svg viewBox="0 0 1000 300" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                  <path d="M0,0 L10,5 L0,10 Z" fill="var(--emerald)"/>
+                </marker>
+              </defs>
+
+              <!-- Visitor -->
+              <g>
+                <rect x="30" y="108" width="150" height="92" rx="10" fill="var(--surface-2)" stroke="var(--border-strong)"/>
+                <rect x="30" y="108" width="150" height="20" rx="10" fill="var(--bg-elevated)"/>
+                <circle cx="44" cy="118" r="3" fill="var(--red)" opacity="0.7"/>
+                <circle cx="55" cy="118" r="3" fill="var(--amber)" opacity="0.7"/>
+                <circle cx="66" cy="118" r="3" fill="var(--emerald)" opacity="0.8"/>
+                <rect x="44" y="146" width="90" height="6" rx="3" fill="var(--border-strong)"/>
+                <rect x="44" y="160" width="110" height="6" rx="3" fill="var(--border-strong)"/>
+                <rect x="44" y="174" width="70" height="6" rx="3" fill="var(--border-strong)"/>
+              </g>
+              <text x="105" y="222" text-anchor="middle" fill="var(--text-primary)" font-family="Space Grotesk, sans-serif" font-size="15" font-weight="600">Visitor</text>
+              <text x="105" y="240" text-anchor="middle" fill="var(--text-muted)" font-family="JetBrains Mono, monospace" font-size="10.5">coolify.yourdomain.com</text>
+
+              <!-- Cloudflare Edge -->
+              <g>
+                <ellipse cx="470" cy="140" rx="34" ry="24" fill="var(--emerald)" opacity="0.85"/>
+                <ellipse cx="500" cy="132" rx="38" ry="28" fill="var(--emerald)" opacity="0.85"/>
+                <ellipse cx="530" cy="142" rx="30" ry="22" fill="var(--emerald)" opacity="0.85"/>
+                <rect x="455" y="138" width="110" height="26" rx="13" fill="var(--emerald)" opacity="0.85"/>
+                <path d="M496 145 h8 v-6 a4 4 0 0 0-8 0 z M494 145 h12 v14 h-12 z" fill="var(--bg)"/>
+              </g>
+              <text x="500" y="200" text-anchor="middle" fill="var(--text-primary)" font-family="Space Grotesk, sans-serif" font-size="15" font-weight="600">Cloudflare Edge</text>
+              <text x="500" y="218" text-anchor="middle" fill="var(--text-muted)" font-family="JetBrains Mono, monospace" font-size="10.5">TLS terminates here</text>
+
+              <!-- Visitor <-> Edge -->
+              <line x1="185" y1="150" x2="452" y2="148" stroke="var(--text-muted)" stroke-width="1.6" marker-end="url(#arrow)" marker-start="url(#arrow)"/>
+              <text x="315" y="136" text-anchor="middle" fill="var(--text-muted)" font-family="JetBrains Mono, monospace" font-size="10.5">HTTPS request / response</text>
+
+              <!-- Edge <-> VPS tunnel -->
+              <line x1="820" y1="150" x2="568" y2="148" class="tunnel-flow" stroke="var(--emerald)" stroke-width="2" marker-end="url(#arrow)"/>
+              <text x="695" y="136" text-anchor="middle" fill="var(--emerald-bright)" font-family="JetBrains Mono, monospace" font-size="10.5">outbound tunnel — cloudflared connects out</text>
+
+              <!-- VPS boundary -->
+              <rect x="720" y="34" width="250" height="236" rx="12" fill="none" stroke="var(--border-strong)" stroke-width="1.4" stroke-dasharray="5 5"/>
+              <text x="845" y="24" text-anchor="middle" fill="var(--text-secondary)" font-family="Space Grotesk, sans-serif" font-size="12.5" font-weight="600">Your VPS — inbound: deny all</text>
+
+              <!-- cloudflared -->
+              <rect x="745" y="52" width="200" height="34" rx="8" fill="var(--surface)" stroke="var(--emerald)" stroke-opacity="0.5"/>
+              <circle class="pulse-dot" cx="761" cy="69" r="4" fill="var(--emerald)"/>
+              <text x="774" y="73" fill="var(--text-primary)" font-family="JetBrains Mono, monospace" font-size="12">cloudflared</text>
+
+              <!-- Traefik -->
+              <rect x="745" y="98" width="200" height="30" rx="7" fill="var(--surface)" stroke="var(--border-strong)"/>
+              <text x="845" y="118" text-anchor="middle" fill="var(--text-secondary)" font-family="JetBrains Mono, monospace" font-size="11">Traefik — :80 / :443</text>
+
+              <!-- Coolify -->
+              <rect x="745" y="140" width="200" height="30" rx="7" fill="var(--surface)" stroke="var(--border-strong)"/>
+              <text x="845" y="160" text-anchor="middle" fill="var(--text-secondary)" font-family="JetBrains Mono, monospace" font-size="11">Coolify dashboard — :8000</text>
+
+              <!-- Realtime/terminal -->
+              <rect x="745" y="182" width="200" height="30" rx="7" fill="var(--surface)" stroke="var(--border-strong)"/>
+              <text x="845" y="202" text-anchor="middle" fill="var(--text-secondary)" font-family="JetBrains Mono, monospace" font-size="11">Soketi :6001 · Terminal :6002</text>
+
+              <!-- lock chip -->
+              <rect x="775" y="228" width="140" height="26" rx="13" fill="var(--emerald-wash)" stroke="var(--emerald)" stroke-opacity="0.4"/>
+              <path d="M792 240 v-4 a4 4 0 0 1 8 0 v4" fill="none" stroke="var(--emerald-bright)" stroke-width="1.6"/>
+              <rect x="790" y="240" width="12" height="9" rx="2" fill="var(--emerald-bright)"/>
+              <text x="860" y="245" text-anchor="middle" fill="var(--emerald-bright)" font-family="JetBrains Mono, monospace" font-size="10">no open ports</text>
+            </svg>
+          </div>
+          <p class="diagram-caption">cloudflared always initiates the connection outward — Cloudflare never needs a way in.</p>
+        </div>
+
+        <p>This walkthrough covers three things in order:</p>
+        <ol class="tight">
+          <li>Standing up <strong>cloudflared</strong> on a clean VPS and pointing a tunnel at it.</li>
+          <li>Installing <strong>Coolify</strong> and wiring its dashboard, realtime, and terminal traffic through that tunnel.</li>
+          <li>Adding one <strong>wildcard route</strong> so every app you deploy afterward — today or a year from now — resolves without ever opening Cloudflare's dashboard again.</li>
+        </ol>
+      </section>
+
+      <hr class="rule">
+
+      <!-- PREREQUISITES -->
+      <section class="section" id="prereqs">
+        <h2 class="htitle">Prerequisites</h2>
+        <p class="section-sub">Check these before starting — most setup problems trace back to one of them.</p>
+
+        <ul class="tight">
+          <li><strong>A domain on Cloudflare</strong>, with its nameservers already switched to Cloudflare's. Routes in step 2 auto-create DNS records, but only once Cloudflare is actually authoritative for the zone — if you just switched nameservers, give it time to propagate first.</li>
+          <li><strong>A clean VPS</strong> (Debian or Ubuntu — the commands below are identical for both) with root or sudo SSH access.</li>
+          <li><strong>No manual Docker install needed.</strong> Coolify's installer sets up Docker itself, so skip that step even if old guides mention it.</li>
+          <li><strong>Sizing:</strong> 2 vCPU / 4 GB RAM is a comfortable floor for Coolify itself; add headroom if you'll build large images on the same box.</li>
+        </ul>
+
+        <div class="callout note">
+          <svg class="ci" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+          <div>
+            <strong>Placeholders used throughout</strong>
+            <p><code class="inline">yourdomain.com</code>, the tunnel name <code class="inline">coolify-tunnel</code>, and <code class="inline">&lt;YOUR_TUNNEL_TOKEN&gt;</code> are stand-ins. Swap in your real domain and the token from your own dashboard before running anything.</p>
+          </div>
+        </div>
+      </section>
+
+      <hr class="rule">
+
+      <!-- STEP 1: CREATE TUNNEL -->
+      <section class="section" id="create-tunnel">
+        <div class="section-head"><span class="step-num">01</span><h2 class="htitle">Create the tunnel</h2></div>
+        <p class="section-sub">Done from the Cloudflare dashboard, then two commands run over SSH on the VPS.</p>
+
+        <p><strong>1.1 —</strong> In the Cloudflare dashboard, pick your account, then go to <strong>Protect &amp; Connect → Networking → Tunnels</strong> and click <strong>Create Tunnel</strong>.</p>
+        <p><strong>1.2 —</strong> Name it something recognizable — <code class="inline">coolify-tunnel</code> works well — and confirm.</p>
+
+        <div class="callout warn">
+          <svg class="ci" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          <div>
+            <strong>Treat the install token like a credential</strong>
+            <p>Cloudflare's own dashboard flags this: the token generated in the next screen grants access to your account. Don't paste it into chat, commit it to a repo, or reuse one from a screenshot or tutorial — generate your own.</p>
+          </div>
+        </div>
+
+        <p><strong>1.3 —</strong> Under <strong>Setup Environment</strong>, choose <strong>Debian</strong> as the operating system (it covers Ubuntu too) and <strong>64-bit</strong> as the architecture. Two command blocks appear on that screen, each with its own copy icon and your real tunnel token already baked in.</p>
+
+        <div class="callout warn">
+          <svg class="ci" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          <div>
+            <strong>Copy from Cloudflare's page, not from here</strong>
+            <p>The two blocks below use <code class="inline">&lt;YOUR_TUNNEL_TOKEN&gt;</code> as a stand-in, so running them exactly as written will fail. They're shown only as a preview of what to expect — grab the real commands, token already included, from the matching screen in your own dashboard.</p>
+          </div>
+        </div>
+
+        <div class="cf-mimic">
+          <div class="cf-mimic-title-row"><span class="cf-mimic-dot"></span><span class="cf-mimic-title">What to look for on Cloudflare's page</span></div>
+          <div class="cf-mimic-row">
+            <span class="cf-mimic-label">Install cloudflared</span>
+            <div class="cf-mimic-cmdbox">
+              <span class="cf-mimic-cmd"># Add cloudflare gpg key  sudo mkdir -p --mode=0755 /usr/share/k…</span>
+              <span class="cf-mimic-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></span>
+            </div>
+          </div>
+          <div class="cf-mimic-row">
+            <span class="cf-mimic-label">Install as service</span>
+            <div class="cf-mimic-cmdbox cf-mimic-cmdbox--target">
+              <span class="cf-mimic-cmd">sudo cloudflared service install eyJhbGciOi***************NC…</span>
+              <span class="cf-mimic-icon cf-mimic-icon--target"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></span>
+            </div>
+          </div>
+          <p class="cf-mimic-hint">↑ That highlighted icon is the one to click on your own dashboard — it copies the full command with your real token already in it.</p>
+        </div>
+
+        <p>Run both commands below <strong>in order</strong> over SSH on the VPS, using the real versions you just copied:</p>
+
+        <div class="code-block reference">
+          <div class="code-block-head"><span class="code-label">bash — install cloudflared</span>
+            <span class="ref-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>Reference only</span>
+          </div>
+          <pre><code><span class="cm"># Add Cloudflare's package signing key</span>
+sudo mkdir -p --mode=0755 /usr/share/keyrings
+curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg | sudo tee /usr/share/keyrings/cloudflare-main.gpg &gt;/dev/null
+
+<span class="cm"># Add the apt repository</span>
+echo 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main' | sudo tee /etc/apt/sources.list.d/cloudflared.list
+
+<span class="cm"># Install</span>
+sudo apt-get update &amp;&amp; sudo apt-get install cloudflared</code></pre>
+        </div>
+
+        <div class="code-block reference">
+          <div class="code-block-head"><span class="code-label">bash — install as a service</span>
+            <span class="ref-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>Reference only</span>
+          </div>
+          <pre><code>sudo cloudflared service install &lt;YOUR_TUNNEL_TOKEN&gt;</code></pre>
+        </div>
+
+        <p>This installs <code class="inline">cloudflared</code> as a persistent systemd service — it survives reboots and reconnects on its own. The dashboard also shows a manual <code class="inline">cloudflared tunnel run --token ...</code> alternative; skip it unless you specifically want a foreground process instead of a service.</p>
+
+        <p><strong>1.4 —</strong> Back in the dashboard, watch the <strong>Connection Status</strong> panel. It starts as <em>"No connection detected yet"</em> and flips to a green <strong>Connected</strong> state with your VPS hostname once the service is running. Don't move on until you see it.</p>
+
+        <div class="callout note">
+          <svg class="ci" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          <div>
+            <strong>If it stays disconnected</strong>
+            <p>Check <code class="inline">sudo systemctl status cloudflared</code> on the VPS, then <code class="inline">sudo journalctl -u cloudflared -f</code> for the reason — almost always an outbound firewall blocking Cloudflare's edge IPs, or a stale token.</p>
+          </div>
+        </div>
+      </section>
+
+      <hr class="rule">
+
+      <!-- STEP 2: ROUTES -->
+      <section class="section" id="routes">
+        <div class="section-head"><span class="step-num">02</span><h2 class="htitle">Wire up the routes</h2></div>
+        <p class="section-sub">Open the tunnel you just created → <strong>Configure → Routes → Add route → Published Application</strong>.</p>
+
+        <p>Add these five, <strong>in this exact order</strong> — Cloudflare matches top to bottom, so specific rules must sit above the wildcard.</p>
+
+        <div class="table-wrap">
+          <table class="route-table">
+            <colgroup>
+              <col style="width:38px">
+              <col style="width:152px">
+              <col style="width:112px">
+              <col style="width:188px">
+              <col>
+            </colgroup>
+            <thead>
+              <tr><th>#</th><th>Subdomain</th><th>Path</th><th>Service URL</th><th>Purpose</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>1</td>
+                <td class="mono-cell">coolify</td>
+                <td class="mono-cell">/terminal/ws</td>
+                <td class="mono-cell">http://localhost:6002</td>
+                <td>In-browser terminal</td>
+              </tr>
+              <tr>
+                <td>2</td>
+                <td class="mono-cell">coolify-realtime</td>
+                <td class="mono-cell">—</td>
+                <td class="mono-cell">http://localhost:6001</td>
+                <td>Realtime / websocket (Soketi)</td>
+              </tr>
+              <tr>
+                <td>3</td>
+                <td class="mono-cell">coolify</td>
+                <td class="mono-cell">—</td>
+                <td class="mono-cell">http://localhost:8000</td>
+                <td>Coolify dashboard</td>
+              </tr>
+              <tr>
+                <td>4</td>
+                <td class="mono-cell">@ (apex)</td>
+                <td class="mono-cell">—</td>
+                <td class="mono-cell">http://localhost:80</td>
+                <td>Bare yourdomain.com, if you ever deploy there</td>
+              </tr>
+              <tr class="highlight">
+                <td>5</td>
+                <td class="mono-cell">*</td>
+                <td class="mono-cell">—</td>
+                <td class="mono-cell">http://localhost:80</td>
+                <td>Catch-all → Coolify's Traefik proxy <span class="badge">Do this once</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p>Row 5 is the one that matters for never touching Cloudflare again: it hands routing off to Coolify's own Traefik proxy, which reads the <code class="inline">Host</code> header and forwards to whichever app you've assigned that domain to. <code class="inline">myapp.yourdomain.com</code>, <code class="inline">blog.yourdomain.com</code> — all of it resolves the moment you type the domain into Coolify and deploy.</p>
+
+        <div class="callout warn">
+          <svg class="ci" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          <div>
+            <strong>Wildcards only cover one subdomain level</strong>
+            <p><code class="inline">*.yourdomain.com</code> covers <code class="inline">app.yourdomain.com</code> but not <code class="inline">staging.app.yourdomain.com</code>. For nested subdomains, add a specific route for that one, or use Cloudflare's Advanced Certificate Manager.</p>
+          </div>
+        </div>
+
+        <p>Cloudflare auto-creates the proxied CNAME records for each hostname. If a record already exists it won't be overwritten — if something doesn't resolve, check <strong>DNS → Records</strong> and point it manually at <code class="inline">&lt;tunnel-id&gt;.cfargotunnel.com</code> (proxied, orange cloud).</p>
+      </section>
+
+      <hr class="rule">
+
+      <!-- STEP 3: INSTALL COOLIFY -->
+      <section class="section" id="install-coolify">
+        <div class="section-head"><span class="step-num">03</span><h2 class="htitle">Install Coolify</h2></div>
+        <p class="section-sub">One command, run as root or with sudo on the same VPS.</p>
+
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-label">bash</span>
+            <button class="copy-btn"><svg class="icon-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><svg class="icon-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;"><polyline points="20 6 9 17 4 12"/></svg><span class="btn-text">Copy</span></button>
+          </div>
+          <pre><code>curl -fsSL https://cdn.coollabs.io/coolify/install.sh | sudo bash</code></pre>
+        </div>
+
+        <p>The script installs Docker, creates Coolify's network, pulls its containers, and runs the first boot — a few minutes depending on the box. Leave the defaults alone: dashboard on <code class="inline">8000</code>, proxy (Traefik) on <code class="inline">80</code>/<code class="inline">443</code>, realtime (Soketi) on <code class="inline">6001</code>, terminal websocket on <code class="inline">6002</code>. The routes in step 2 are built around those exact ports.</p>
+      </section>
+
+      <hr class="rule">
+
+      <!-- STEP 4: REALTIME -->
+      <section class="section" id="realtime">
+        <div class="section-head"><span class="step-num">04</span><h2 class="htitle">Connect the realtime server</h2></div>
+        <p class="section-sub">Point Coolify's Pusher/Soketi client at the tunnel instead of localhost.</p>
+
+        <p>SSH in and edit the env file:</p>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-label">bash</span>
+            <button class="copy-btn"><svg class="icon-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><svg class="icon-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;"><polyline points="20 6 9 17 4 12"/></svg><span class="btn-text">Copy</span></button>
+          </div>
+          <pre><code>nano /data/coolify/source/.env</code></pre>
+        </div>
+
+        <p>Add these two lines — leave the existing <code class="inline">APP_ID</code>, <code class="inline">PUSHER_APP_*</code>, and <code class="inline">REDIS_PASSWORD</code> entries alone, they're already set from install:</p>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-label">.env</span>
+            <button class="copy-btn"><svg class="icon-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><svg class="icon-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;"><polyline points="20 6 9 17 4 12"/></svg><span class="btn-text">Copy</span></button>
+          </div>
+          <pre><code>PUSHER_HOST=coolify-realtime.yourdomain.com
+PUSHER_PORT=443</code></pre>
+        </div>
+
+        <p>Apply it by re-running the installer — it's idempotent and picks up the updated <code class="inline">.env</code>:</p>
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-label">bash</span>
+            <button class="copy-btn"><svg class="icon-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><svg class="icon-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;"><polyline points="20 6 9 17 4 12"/></svg><span class="btn-text">Copy</span></button>
+          </div>
+          <pre><code>curl -fsSL https://cdn.coollabs.io/coolify/install.sh | sudo bash</code></pre>
+        </div>
+      </section>
+
+      <hr class="rule">
+
+      <!-- STEP 5: DOMAINS -->
+      <section class="section" id="domains">
+        <div class="section-head"><span class="step-num">05</span><h2 class="htitle">Set your domains</h2></div>
+        <p class="section-sub">In Coolify: <strong>Settings → General/Instance Settings</strong>, and the Domains field on every app you deploy.</p>
+
+        <ul class="tight">
+          <li>Instance domain: <code class="inline">http://coolify.yourdomain.com</code> — <strong>http, not https.</strong></li>
+          <li>Same rule for every future app: enter <code class="inline">http://yourapp.yourdomain.com</code> in Coolify's Domains field.</li>
+        </ul>
+
+        <div class="callout danger">
+          <svg class="ci" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          <div>
+            <strong>Why http, not https</strong>
+            <p>Cloudflare terminates TLS at the edge — Coolify's Traefik only ever sees plain HTTP arriving over the tunnel. Set <code class="inline">https://</code> on the Coolify side without a real cert installed on Traefik and you'll land in a <code class="inline">TOO_MANY_REDIRECTS</code> loop.</p>
+          </div>
+        </div>
+
+        <div class="callout note">
+          <svg class="ci" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+          <div>
+            <strong>Need real end-to-end HTTPS later?</strong>
+            <p>There's an advanced path using a Cloudflare Origin Certificate installed directly on Traefik — worth it if something like an OAuth callback needs genuine HTTPS all the way to the origin. It's a separate task from this setup, so tackle it only if you hit that need.</p>
+          </div>
+        </div>
+      </section>
+
+      <hr class="rule">
+
+      <!-- STEP 6: SECURITY -->
+      <section class="section" id="security">
+        <div class="section-head"><span class="step-num">06</span><h2 class="htitle">Cloudflare security settings</h2></div>
+        <p class="section-sub">In the Cloudflare dashboard, under your domain's SSL/TLS and Security sections.</p>
+
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Setting</th><th>Where</th><th>Value</th></tr></thead>
+            <tbody>
+              <tr><td>Encryption mode</td><td>SSL/TLS → Overview</td><td class="mono-cell">Full (Strict)</td></tr>
+              <tr><td>Always Use HTTPS</td><td>SSL/TLS → Edge Certificates</td><td class="mono-cell">On</td></tr>
+              <tr><td>Minimum TLS version</td><td>SSL/TLS → Edge Certificates</td><td class="mono-cell">TLS 1.2 (+ enable 1.3)</td></tr>
+              <tr><td>Automatic HTTPS Rewrites</td><td>SSL/TLS → Edge Certificates</td><td class="mono-cell">On</td></tr>
+              <tr><td>Bot Fight Mode</td><td>Security → Bots</td><td class="mono-cell">On</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>Automatic HTTPS Rewrites avoids mixed-content issues; Bot Fight Mode (free tier) cuts down credential-stuffing hits on your login page.</p>
+      </section>
+
+      <hr class="rule">
+
+      <!-- STEP 7: FIREWALL -->
+      <section class="section" id="firewall">
+        <div class="section-head"><span class="step-num">07</span><h2 class="htitle">Lock down the firewall</h2></div>
+        <p class="section-sub">This is the actual security win of using a tunnel — <code class="inline">cloudflared</code> only opens outbound connections.</p>
+
+        <p>Nothing needs to be open for inbound traffic at all. Close everything except SSH:</p>
+
+        <div class="code-block">
+          <div class="code-block-head"><span class="code-label">bash</span>
+            <button class="copy-btn"><svg class="icon-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><svg class="icon-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;"><polyline points="20 6 9 17 4 12"/></svg><span class="btn-text">Copy</span></button>
+          </div>
+          <pre><code>sudo ufw default deny incoming
+sudo ufw default allow outgoing
+sudo ufw allow OpenSSH
+sudo ufw enable
+sudo ufw status verbose</code></pre>
+        </div>
+
+        <p>You do <strong>not</strong> need to open <code class="inline">80</code>, <code class="inline">443</code>, <code class="inline">8000</code>, <code class="inline">6001</code>, or <code class="inline">6002</code> to the internet — <code class="inline">cloudflared</code> reaches them over <code class="inline">localhost</code>, and the default-deny policy blocks any direct hit on the VPS's public IP.</p>
+
+        <div class="callout note">
+          <svg class="ci" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+          <div>
+            <strong>Using a custom SSH port?</strong>
+            <p>Swap <code class="inline">sudo ufw allow OpenSSH</code> for <code class="inline">sudo ufw allow &lt;port&gt;/tcp</code> instead — and if you later sit behind a provider-level firewall (Hetzner Cloud Firewall, AWS security groups, etc.), mirror the same allow rules there.</p>
+          </div>
+        </div>
+      </section>
+
+      <hr class="rule">
+
+      <!-- STEP 8: VERIFY -->
+      <section class="section" id="verify">
+        <div class="section-head"><span class="step-num">08</span><h2 class="htitle">Verify everything</h2></div>
+        <p class="section-sub">Four checks, in order.</p>
+
+        <ul class="checklist">
+          <li><span class="cnum">1</span><div><strong>Dashboard loads.</strong> Visit <code class="inline">https://coolify.yourdomain.com</code> — it should load over HTTPS with no certificate warning.</div></li>
+          <li><span class="cnum">2</span><div><strong>Realtime works.</strong> Visit <code class="inline">https://coolify.yourdomain.com/realtime</code> and confirm a test event notification appears — that's the Soketi websocket connecting.</div></li>
+          <li><span class="cnum">3</span><div><strong>Terminal works.</strong> Open a deployed app's Terminal tab in Coolify and confirm it connects — that exercises port 6002.</div></li>
+          <li><span class="cnum">4</span><div><strong>Wildcard works.</strong> Deploy a throwaway app, set its domain to <code class="inline">http://test.yourdomain.com</code>, hit deploy, and confirm it's reachable — no Cloudflare changes required.</div></li>
+        </ul>
+      </section>
+
+      <hr class="rule">
+
+      <!-- NEW APPS -->
+      <section class="section" id="new-apps">
+        <h2 class="htitle">Deploying new apps</h2>
+        <p class="section-sub">From here on, this is the entire routine.</p>
+        <p>Add the domain — <code class="inline">http://whatever.yourdomain.com</code>, or <code class="inline">http://yourdomain.com</code> for the apex — in the app's Domains field inside Coolify, and deploy. The wildcard tunnel route and Coolify's Traefik proxy handle the rest automatically. No new Cloudflare route, no new DNS record, no new certificate to think about.</p>
+      </section>
+
+      <div class="footer">
+        Placeholders <code class="inline">yourdomain.com</code>, <code class="inline">coolify-tunnel</code>, and <code class="inline">&lt;YOUR_TUNNEL_TOKEN&gt;</code> throughout — swap in your real values before running any command.
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<script>
+  // Scroll-fade hints for horizontally-scrollable diagram/tables
+  function setupScrollFade(wrapSelector, scrollerSelector){
+    document.querySelectorAll(wrapSelector).forEach(function(wrap){
+      var scroller = scrollerSelector ? wrap.querySelector(scrollerSelector) : wrap;
+      if (!scroller) return;
+      function update(){
+        var canScroll = scroller.scrollWidth > scroller.clientWidth + 2;
+        var atEnd = scroller.scrollLeft + scroller.clientWidth >= scroller.scrollWidth - 2;
+        wrap.classList.toggle('is-scrollable', canScroll && !atEnd);
+      }
+      update();
+      scroller.addEventListener('scroll', update, { passive: true });
+      window.addEventListener('resize', update);
+    });
+  }
+  setupScrollFade('.diagram-wrap', '.diagram-scroll');
+  setupScrollFade('.table-wrap', null);
+
+  // Copy buttons
+  document.querySelectorAll('.copy-btn').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var block = btn.closest('.code-block');
+      var codeEl = block.querySelector('code');
+      var text = codeEl.innerText;
+      var finish = function(){
+        btn.classList.add('copied');
+        btn.querySelector('.icon-copy').style.display = 'none';
+        btn.querySelector('.icon-check').style.display = 'inline-block';
+        btn.querySelector('.btn-text').textContent = 'Copied';
+        setTimeout(function(){
+          btn.classList.remove('copied');
+          btn.querySelector('.icon-copy').style.display = 'inline-block';
+          btn.querySelector('.icon-check').style.display = 'none';
+          btn.querySelector('.btn-text').textContent = 'Copy';
+        }, 1600);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(finish).catch(function(){ fallbackCopy(text, finish); });
+      } else {
+        fallbackCopy(text, finish);
+      }
+    });
+  });
+  function fallbackCopy(text, cb){
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.focus(); ta.select();
+    try { document.execCommand('copy'); } catch(e){}
+    document.body.removeChild(ta);
+    cb();
+  }
+
+  // Mobile menu
+  var sidebar = document.getElementById('sidebar');
+  var overlay = document.getElementById('overlay');
+  var menuBtn = document.getElementById('menuBtn');
+  function openMenu(){ sidebar.classList.add('open'); overlay.classList.add('show'); }
+  function closeMenu(){ sidebar.classList.remove('open'); overlay.classList.remove('show'); }
+  menuBtn.addEventListener('click', openMenu);
+  overlay.addEventListener('click', closeMenu);
+  document.querySelectorAll('.navlink').forEach(function(a){ a.addEventListener('click', closeMenu); });
+
+  // Scrollspy
+  var links = document.querySelectorAll('.navlink');
+  var sections = Array.prototype.slice.call(document.querySelectorAll('.section')).filter(function(s){ return s.id; });
+  var map = {};
+  links.forEach(function(l){ map[l.getAttribute('href').slice(1)] = l; });
+  var observer = new IntersectionObserver(function(entries){
+    entries.forEach(function(entry){
+      if (entry.isIntersecting) {
+        links.forEach(function(l){ l.classList.remove('active'); });
+        var link = map[entry.target.id];
+        if (link) link.classList.add('active');
+      }
+    });
+  }, { rootMargin: '-15% 0px -70% 0px', threshold: 0 });
+  sections.forEach(function(s){ observer.observe(s); });
+</script>
+</body>
+</html>
